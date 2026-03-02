@@ -1,1 +1,1 @@
-include mkpipe_extractor_mongodb/jars/*
+include mkpipe_extractor_bigquery/jars/*
