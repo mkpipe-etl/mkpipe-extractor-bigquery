@@ -4,6 +4,8 @@ from mkpipe.spark.base import BaseExtractor
 from mkpipe.models import ConnectionConfig, ExtractResult, TableConfig
 from mkpipe.utils import get_logger
 
+JAR_PACKAGES = ['com.google.cloud.spark:spark-3.5-bigquery:0.41.0']
+
 logger = get_logger(__name__)
 
 
