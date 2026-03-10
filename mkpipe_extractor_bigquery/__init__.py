@@ -33,6 +33,9 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
         if self.credentials_file:
             reader = reader.option('credentialsFile', self.credentials_file)
 
+        if table.partitions_count:
+            reader = reader.option('maxParallelism', str(table.partitions_count))
+
         if table.replication_method.value == 'incremental' and last_point and table.iterate_column:
             reader = reader.option(
                 'filter',
