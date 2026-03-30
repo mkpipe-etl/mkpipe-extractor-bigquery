@@ -15,6 +15,35 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
         self.project = connection.database
         self.dataset = connection.schema
         self.credentials_file = connection.credentials_file
+        self._billing_project_id = (
+            connection.extra.get('billing_project') if connection.extra else None
+        )
+
+    def _billing_project(self) -> str:
+        """Resolve the billing/quota project for BigQuery API calls.
+
+        Priority: connection.extra.billing_project > credentials JSON project_id > self.project
+        """
+        if self._billing_project_id:
+            return self._billing_project_id
+
+        # Try to read project_id from service account JSON
+        if self.credentials_file:
+            import json
+            from pathlib import Path
+
+            creds_path = Path(self.credentials_file)
+            if creds_path.exists():
+                try:
+                    with open(creds_path) as f:
+                        creds = json.load(f)
+                    project_id = creds.get('project_id')
+                    if project_id:
+                        return project_id
+                except Exception:
+                    pass
+
+        return self.project
 
     def extract(
         self, table: TableConfig, spark, last_point: Optional[str] = None
@@ -36,6 +65,9 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
 
         if self.credentials_file:
             reader = reader.option('credentialsFile', self.credentials_file)
+            # When reading from a different project (e.g. public datasets),
+            # parentProject must point to the billing project from credentials.
+            reader = reader.option('parentProject', self._billing_project())
 
         if table.partitions_count:
             reader = reader.option('maxParallelism', str(table.partitions_count))
