@@ -77,7 +77,13 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
             and last_point
             and table.iterate_column
         ):
-            reader = reader.option('filter', f"{table.iterate_column} > '{last_point}'")
+            # BigQuery is strict about type matching: INT64 > STRING will fail.
+            # Use iterate_column_type to decide whether to quote the value.
+            if table.iterate_column_type == 'int':
+                filter_expr = f"{table.iterate_column} > {last_point}"
+            else:
+                filter_expr = f"{table.iterate_column} > '{last_point}'"
+            reader = reader.option('filter', filter_expr)
             write_mode = 'append'
         else:
             write_mode = 'overwrite'
