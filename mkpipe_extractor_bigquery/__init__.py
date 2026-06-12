@@ -72,13 +72,31 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
         if table.partitions_count:
             reader = reader.option('maxParallelism', str(table.partitions_count))
 
+        has_static_bounds = table.filter_lower_bound is not None or table.filter_upper_bound is not None
+
         if (
+            table.replication_method.value == 'incremental'
+            and table.iterate_column
+            and has_static_bounds
+        ):
+            conditions = []
+            if table.filter_lower_bound is not None:
+                if table.iterate_column_type == 'int':
+                    conditions.append(f'{table.iterate_column} >= {table.filter_lower_bound}')
+                else:
+                    conditions.append(f"{table.iterate_column} >= '{table.filter_lower_bound}'")
+            if table.filter_upper_bound is not None:
+                if table.iterate_column_type == 'int':
+                    conditions.append(f'{table.iterate_column} < {table.filter_upper_bound}')
+                else:
+                    conditions.append(f"{table.iterate_column} < '{table.filter_upper_bound}'")
+            reader = reader.option('filter', ' AND '.join(conditions))
+            write_mode = 'overwrite'
+        elif (
             table.replication_method.value == 'incremental'
             and last_point
             and table.iterate_column
         ):
-            # BigQuery is strict about type matching: INT64 > STRING will fail.
-            # Use iterate_column_type to decide whether to quote the value.
             if table.iterate_column_type == 'int':
                 filter_expr = f"{table.iterate_column} > {last_point}"
             else:
