@@ -91,7 +91,7 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
                 else:
                     conditions.append(f"{table.iterate_column} < '{table.filter_upper_bound}'")
             reader = reader.option('filter', ' AND '.join(conditions))
-            write_mode = 'overwrite'
+            write_mode = 'append'
         elif (
             table.replication_method.value == 'incremental'
             and last_point
