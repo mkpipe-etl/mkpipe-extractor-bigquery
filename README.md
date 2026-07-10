@@ -82,7 +82,7 @@ The BigQuery Storage Read API creates parallel read streams automatically. `part
 | `name` | string | required | BigQuery table name |
 | `target_name` | string | required | Destination table name |
 | `replication_method` | `full` / `incremental` | `full` | Replication strategy |
-| `iterate_column` | string | — | Column used for incremental filter (`>`) |
+| `iterate_column` | string or list | — | Column(s) for incremental filter. String for single column, list for multi-column OR logic |
 | `iterate_column_type` | string | — | Type hint for watermark column |
 | `partitions_count` | int | — | Max parallel read streams (`maxParallelism`) |
 | `tags` | list | `[]` | Tags for selective pipeline execution |

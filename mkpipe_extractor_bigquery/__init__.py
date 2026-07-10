@@ -73,34 +73,52 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
             reader = reader.option('maxParallelism', str(table.partitions_count))
 
         has_static_bounds = table.filter_lower_bound is not None or table.filter_upper_bound is not None
+        columns = table.iterate_columns
+        is_multi = table.is_multi_iterate_column
 
         if (
             table.replication_method.value == 'incremental'
             and table.iterate_column
             and has_static_bounds
         ):
-            conditions = []
-            if table.filter_lower_bound is not None:
-                if table.iterate_column_type == 'int':
-                    conditions.append(f'{table.iterate_column} >= {table.filter_lower_bound}')
-                else:
-                    conditions.append(f"{table.iterate_column} >= '{table.filter_lower_bound}'")
-            if table.filter_upper_bound is not None:
-                if table.iterate_column_type == 'int':
-                    conditions.append(f'{table.iterate_column} < {table.filter_upper_bound}')
-                else:
-                    conditions.append(f"{table.iterate_column} < '{table.filter_upper_bound}'")
-            reader = reader.option('filter', ' AND '.join(conditions))
+            col_conditions = []
+            for col in columns:
+                parts = []
+                if table.filter_lower_bound is not None:
+                    if table.iterate_column_type == 'int':
+                        parts.append(f'{col} >= {table.filter_lower_bound}')
+                    else:
+                        parts.append(f"{col} >= '{table.filter_lower_bound}'")
+                if table.filter_upper_bound is not None:
+                    if table.iterate_column_type == 'int':
+                        parts.append(f'{col} < {table.filter_upper_bound}')
+                    else:
+                        parts.append(f"{col} < '{table.filter_upper_bound}'")
+                col_conditions.append('(' + ' AND '.join(parts) + ')')
+            if is_multi:
+                filter_expr = ' OR '.join(col_conditions)
+            else:
+                filter_expr = ' AND '.join(parts)
+            reader = reader.option('filter', filter_expr)
             write_mode = 'append'
         elif (
             table.replication_method.value == 'incremental'
             and last_point
             and table.iterate_column
         ):
-            if table.iterate_column_type == 'int':
-                filter_expr = f"{table.iterate_column} > {last_point}"
+            if is_multi:
+                or_parts = []
+                for col in columns:
+                    if table.iterate_column_type == 'int':
+                        or_parts.append(f'{col} >= {last_point}')
+                    else:
+                        or_parts.append(f"{col} >= '{last_point}'")
+                filter_expr = ' OR '.join(or_parts)
             else:
-                filter_expr = f"{table.iterate_column} > '{last_point}'"
+                if table.iterate_column_type == 'int':
+                    filter_expr = f"{columns[0]} >= {last_point}"
+                else:
+                    filter_expr = f"{columns[0]} >= '{last_point}'"
             reader = reader.option('filter', filter_expr)
             write_mode = 'append'
         else:
@@ -119,7 +137,11 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
         if table.replication_method.value == 'incremental' and table.iterate_column:
             from pyspark.sql import functions as F
 
-            row = df.agg(F.max(table.iterate_column).alias('max_val')).first()
+            if is_multi:
+                max_expr = F.greatest(*[F.max(F.col(c)) for c in columns])
+                row = df.select(max_expr.alias('max_val')).first()
+            else:
+                row = df.agg(F.max(columns[0]).alias('max_val')).first()
             if row and row['max_val'] is not None:
                 last_point_value = str(row['max_val'])
 
