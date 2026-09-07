@@ -126,24 +126,30 @@ class BigQueryExtractor(BaseExtractor, variant='bigquery'):
 
         df = reader.load()
 
-        if not df.take(1):
-            if write_mode == 'overwrite':
-                logger.info({'table': table.target_name, 'status': 'empty_source_initial_load'})
-                return ExtractResult(df=df, write_mode=write_mode)
-            logger.info({'table': table.target_name, 'status': 'no_new_data'})
-            return ExtractResult(df=None, write_mode=write_mode)
-
-        last_point_value = None
-        if table.replication_method.value == 'incremental' and table.iterate_column:
+        if (
+            table.replication_method.value == 'incremental'
+            and table.iterate_column
+        ):
+            # Column-pruned agg doubles as the empty check: on an empty df
+            # all max values come back as None.
             from pyspark.sql import functions as F
 
-            if is_multi:
-                max_expr = F.greatest(*[F.max(F.col(c)) for c in columns])
-                row = df.select(max_expr.alias('max_val')).first()
-            else:
-                row = df.agg(F.max(columns[0]).alias('max_val')).first()
-            if row and row['max_val'] is not None:
-                last_point_value = str(row['max_val'])
+            row = df.agg(
+                *[F.max(c).alias(f'_mk_m{i}') for i, c in enumerate(columns)]
+            ).first()
+            values = [row[f'_mk_m{i}'] for i in range(len(columns))]
+            values = [v for v in values if v is not None]
+            if not values:
+                if write_mode == 'overwrite':
+                    logger.info({'table': table.target_name, 'status': 'empty_source_initial_load'})
+                    return ExtractResult(df=df, write_mode=write_mode)
+                logger.info({'table': table.target_name, 'status': 'no_new_data'})
+                return ExtractResult(df=None, write_mode=write_mode)
+            last_point_value = str(max(values))
+        else:
+            if not df.take(1):
+                logger.info({'table': table.target_name, 'status': 'empty_source_initial_load'})
+            last_point_value = None
 
         logger.info(
             {
